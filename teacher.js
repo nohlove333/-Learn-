@@ -60,6 +60,7 @@
       });
       container.querySelector('[data-logout]').addEventListener('click', function () {
         window.LearnSession.clear('teacher');
+        if (window.LearnNavigation) window.LearnNavigation.clear('teacher');
         location.hash = '#/';
       });
       container.querySelectorAll('[data-open-class]').forEach(function (card) {
@@ -292,7 +293,9 @@
         (item.status === 'open' ? '작성 가능' : '읽기 전용') + '</span>';
       meta.push('게시 ' + (item.postCount || 0) + '/' + classData.students.length + '명');
     }
-    return '<article class="item-card ' + (item.pinned ? 'pinned' : '') + '">' +
+    return '<article class="item-card content-clickable ' + (item.pinned ? 'pinned' : '') + '" tabindex="0" ' +
+      'data-view-content="' + UI.attr(type) + '" data-content-id="' + UI.attr(item.id) + '" ' +
+      'aria-label="' + UI.attr(item.title + ' 상세 보기') + '">' +
       '<div class="item-top"><div><h3>' + UI.escape(item.title) + '</h3>' +
         '<div class="meta-line">' + badge + meta.map(function (text) { return '<span>' + UI.escape(text) + '</span>'; }).join('') + '</div></div>' +
         '<div class="card-actions">' +
@@ -304,6 +307,50 @@
       (item.body ? '<p class="item-body">' + UI.escape(item.body) + '</p>' : '') +
       UI.attachments(item.attachments, 'teacher') +
     '</article>';
+  }
+
+  function contentListFor(type) {
+    if (type === 'announcement') return classData.announcements;
+    if (type === 'assignment') return classData.assignments;
+    return classData.boards;
+  }
+
+  function openTeacherContentDetail(type, item, classId, container, tab) {
+    var info = typeInfo(type);
+    var meta = [];
+    var badge = '';
+    if (type === 'announcement') {
+      badge = item.pinned ? '<span class="status-badge">중요 공지</span>' : '';
+      meta.push('수정 ' + UI.date(item.updatedAt, true));
+    }
+    if (type === 'assignment') {
+      badge = '<span class="status-badge ' + (item.status === 'open' ? 'open' : '') + '">' +
+        (item.status === 'open' ? '제출 가능' : '마감') + '</span>';
+      if (item.dueAt) meta.push('마감 ' + UI.date(item.dueAt, true));
+      meta.push('제출 ' + (item.submissionCount || 0) + '/' + classData.students.length + '명');
+    }
+    var dialog = UI.modal({
+      title: item.title,
+      wide: true,
+      html:
+        '<div class="detail-meta">' + badge + meta.map(function (text) {
+          return '<span>' + UI.escape(text) + '</span>';
+        }).join('') + '</div>' +
+        '<div class="detail-body">' + (item.body ? UI.nl2br(item.body) : '<span class="muted-text">작성된 내용이 없어요.</span>') + '</div>' +
+        UI.attachments(item.attachments, 'teacher') +
+        '<div class="modal-actions compact-actions">' +
+          (type === 'assignment' ? '<button class="button secondary small" type="button" data-detail-submissions>제출 보기</button>' : '') +
+          '<button class="button ghost small" type="button" data-detail-edit>' + UI.escape(info.plural) + ' 수정</button>' +
+        '</div>'
+    });
+    UI.bindFiles(dialog, 'teacher');
+    var submissions = dialog.querySelector('[data-detail-submissions]');
+    if (submissions) submissions.addEventListener('click', function () {
+      openSubmissions(item.id, classId, container, tab);
+    });
+    dialog.querySelector('[data-detail-edit]').addEventListener('click', function () {
+      openContentEditor(type, item, classId, container, tab);
+    });
   }
 
   function renderStudents() {
@@ -324,6 +371,22 @@
   }
 
   function bindTabActions(container, classId, tab) {
+    container.querySelectorAll('[data-view-content]').forEach(function (card) {
+      function openCard(event) {
+        if (event && event.target.closest('button, a, input, textarea, select, label')) return;
+        var type = card.dataset.viewContent;
+        var item = contentListFor(type).find(function (entry) { return entry.id === card.dataset.contentId; });
+        if (!item) return;
+        if (type === 'board') openTeacherBoard(item.id, classId, container, tab);
+        else openTeacherContentDetail(type, item, classId, container, tab);
+      }
+      card.addEventListener('click', openCard);
+      card.addEventListener('keydown', function (event) {
+        if (event.target !== card || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        openCard();
+      });
+    });
     container.querySelectorAll('[data-create-content]').forEach(function (button) {
       button.addEventListener('click', function () {
         openContentEditor(button.dataset.createContent, null, classId, container, tab);
@@ -332,7 +395,7 @@
     container.querySelectorAll('[data-edit-content]').forEach(function (button) {
       button.addEventListener('click', function () {
         var type = button.dataset.editContent;
-        var list = type === 'announcement' ? classData.announcements : type === 'assignment' ? classData.assignments : classData.boards;
+        var list = contentListFor(type);
         var item = list.find(function (entry) { return entry.id === button.dataset.contentId; });
         openContentEditor(type, item, classId, container, tab);
       });
@@ -608,7 +671,8 @@
         (post
           ? '<div class="tile-content">' + UI.escape((post.text || '첨부파일 게시물').slice(0, 92)) +
             (post.text && post.text.length > 92 ? '…' : '') + '</div>' +
-            (post.status === 'revision' ? '<div class="revision-note" style="padding:7px;margin-top:10px">수정 요청됨</div>' : '')
+            (post.status === 'revision' ? '<div class="tile-review-state revision">반려 · 수정 필요</div>' : '') +
+            (post.status === 'confirmed' ? '<div class="tile-review-state confirmed">확인 완료</div>' : '')
           : '<div class="tile-empty">아직 작성하지 않았어요.</div>') +
       '</article>';
     }).join('');
@@ -643,47 +707,45 @@
   }
 
   function openBoardPostReview(post, board, classId, container, tab) {
+    var statusText = post.status === 'revision'
+      ? '<div class="moderation-state revision"><strong>반려됨</strong><span>학생에게만 수정 필요 상태가 표시돼요.</span></div>'
+      : post.status === 'confirmed'
+        ? '<div class="moderation-state confirmed"><strong>확인 완료</strong><span>학생에게만 확인 완료 상태가 표시돼요.</span></div>'
+        : '<div class="moderation-state"><strong>확인 전</strong><span>아래 버튼으로 게시글 상태를 정해 주세요.</span></div>';
     var dialog = UI.modal({
       title: post.studentNumber + '번 ' + post.studentName + '의 게시글',
       wide: true,
       html:
-        (post.status === 'revision' ? '<div class="revision-note"><strong>수정 요청:</strong> ' + UI.escape(post.revisionMessage) + '</div>' : '') +
-        '<p class="item-body" style="font-size:1rem">' + UI.escape(post.text || '') + '</p>' +
+        statusText +
+        '<div class="detail-meta"><span>게시 ' + UI.escape(UI.date(post.createdAt, true)) + '</span>' +
+          (post.updatedAt !== post.createdAt ? '<span>수정 ' + UI.escape(UI.date(post.updatedAt, true)) + '</span>' : '') + '</div>' +
+        '<div class="detail-body">' + (post.text ? UI.nl2br(post.text) : '<span class="muted-text">작성된 글 없이 파일만 게시했어요.</span>') + '</div>' +
         UI.attachments(post.attachments, 'teacher') +
-        '<form class="form-stack" data-review-form style="margin-top:24px">' +
-          '<div class="field"><label for="revision-message">수정 요청 내용</label>' +
-            '<textarea id="revision-message" name="message" placeholder="학생에게 고쳐야 할 내용을 구체적으로 알려 주세요.">' + UI.escape(post.revisionMessage || '') + '</textarea></div>' +
-          '<div class="modal-actions"><button class="button danger" type="button" data-delete-post>게시글 삭제</button>' +
-            '<button class="button secondary" type="button" data-clear-review>요청 해제</button>' +
-            '<button class="button" type="submit">수정 요청 보내기</button></div>' +
-        '</form>'
+        '<div class="modal-actions moderation-actions">' +
+          '<button class="button soft" type="button" data-review-decision="revision">반려</button>' +
+          '<button class="button danger" type="button" data-delete-post>삭제</button>' +
+          '<button class="button confirmed" type="button" data-review-decision="confirmed">확인</button>' +
+        '</div>'
     });
     UI.bindFiles(dialog, 'teacher');
-    dialog.querySelector('[data-review-form]').addEventListener('submit', async function (event) {
-      event.preventDefault();
-      var button = event.currentTarget.querySelector('[type="submit"]');
-      var message = String(new FormData(event.currentTarget).get('message') || '').trim();
-      if (!message) return UI.toast('수정 요청 내용을 입력해 주세요.', 'error');
-      UI.busy(button, true, '보내는 중…');
-      try {
-        await API.request('reviewBoardPost', { postId: post.id, classId: classId, message: message }, 'teacher');
-        UI.closeModal();
-        UI.toast('수정 요청을 보냈습니다.');
-        renderClass(container, classId, tab);
-      } catch (error) {
-        UI.toast(error.message, 'error');
-        UI.busy(button, false);
-      }
-    });
-    dialog.querySelector('[data-clear-review]').addEventListener('click', async function () {
-      try {
-        await API.request('reviewBoardPost', { postId: post.id, classId: classId, message: '' }, 'teacher');
-        UI.closeModal();
-        UI.toast('수정 요청을 해제했습니다.');
-        renderClass(container, classId, tab);
-      } catch (error) {
-        UI.toast(error.message, 'error');
-      }
+    dialog.querySelectorAll('[data-review-decision]').forEach(function (button) {
+      button.addEventListener('click', async function () {
+        var decision = button.dataset.reviewDecision;
+        UI.busy(button, true, decision === 'revision' ? '반려 중…' : '확인 중…');
+        try {
+          await API.request('reviewBoardPost', {
+            postId: post.id,
+            classId: classId,
+            decision: decision
+          }, 'teacher');
+          UI.closeModal();
+          UI.toast(decision === 'revision' ? '수정이 필요하도록 반려했습니다.' : '게시글을 확인했습니다.');
+          renderClass(container, classId, tab);
+        } catch (error) {
+          UI.toast(error.message, 'error');
+          UI.busy(button, false);
+        }
+      });
     });
     dialog.querySelector('[data-delete-post]').addEventListener('click', async function () {
       var yes = await UI.confirm({
@@ -692,7 +754,10 @@
         confirmText: '삭제',
         danger: true
       });
-      if (!yes) return;
+      if (!yes) {
+        openBoardPostReview(post, board, classId, container, tab);
+        return;
+      }
       try {
         await API.request('deleteBoardPost', { postId: post.id, classId: classId }, 'teacher');
         UI.closeModal();

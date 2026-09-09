@@ -297,7 +297,12 @@
       submissions: clone(state.submissions.filter(function (item) {
         return item.classId === classId && (!studentId || item.studentId === studentId);
       })),
-      boardPosts: clone(state.boardPosts.filter(function (item) { return item.classId === classId; })),
+      boardPosts: clone(state.boardPosts.filter(function (item) {
+        return item.classId === classId;
+      }).map(function (item) {
+        if (!studentId || item.studentId === studentId) return item;
+        return Object.assign({}, item, { status: 'published', revisionMessage: '' });
+      })),
       onlineStudents: clone(classStudents.filter(function (item) { return item.online; }))
     };
   }
@@ -538,8 +543,12 @@
       if (action === 'reviewBoardPost') {
         var reviewed = state.boardPosts.find(function (item) { return item.id === payload.postId; });
         if (!reviewed) throw new ApiError('게시물을 찾을 수 없습니다.', 'NOT_FOUND');
-        reviewed.status = payload.message ? 'revision' : 'published';
-        reviewed.revisionMessage = payload.message || '';
+        var reviewDecision = String(payload.decision || (payload.message ? 'revision' : 'published'));
+        if (['revision', 'confirmed', 'published'].indexOf(reviewDecision) < 0) {
+          throw new ApiError('게시글 확인 상태가 올바르지 않습니다.', 'INVALID_REVIEW');
+        }
+        reviewed.status = reviewDecision;
+        reviewed.revisionMessage = '';
         reviewed.updatedAt = nowIso();
         setDemoState(state);
         return clone(reviewed);

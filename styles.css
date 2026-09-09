@@ -116,17 +116,21 @@ video {
 }
 
 .brand-mark {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
+  display: block;
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--ink);
   background: var(--paper);
-  font-family: Georgia, serif;
-  font-size: 1.35rem;
-  font-style: italic;
-  font-weight: 700;
   box-shadow: 5px 5px 0 var(--rose);
+  overflow: hidden;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 32%;
+  transform: scale(1.08);
 }
 
 .brand-copy {
@@ -138,6 +142,7 @@ video {
 .brand-copy strong {
   font-size: 1.05rem;
   letter-spacing: -0.04em;
+  white-space: nowrap;
 }
 
 .brand-copy em {
@@ -369,6 +374,11 @@ video {
 .button.danger {
   border-color: var(--danger);
   background: var(--danger);
+}
+
+.button.confirmed {
+  border-color: #397c60;
+  background: #397c60;
 }
 
 .button.small {
@@ -982,6 +992,17 @@ video {
   background: #fff;
 }
 
+.content-clickable {
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.content-clickable:hover {
+  border-color: #aaa7b0;
+  box-shadow: 4px 5px 0 rgba(23, 23, 27, 0.07);
+  transform: translateY(-1px);
+}
+
 .item-card.pinned {
   border-left: 5px solid var(--rose);
 }
@@ -1032,6 +1053,32 @@ video {
 .status-badge.due { border-color: #d2bd4c; background: var(--yellow-soft); color: #6d621f; }
 .status-badge.revision { border-color: #d7879a; background: var(--rose-soft); color: #873e53; }
 .status-badge.submitted { border-color: #77aec6; background: var(--blue-soft); color: #31657b; }
+
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.detail-body {
+  min-height: 120px;
+  margin-top: 18px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--paper-soft);
+  color: #3f3e46;
+  font-size: 1rem;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.muted-text {
+  color: var(--muted);
+}
 
 .attachment-list {
   display: flex;
@@ -1307,6 +1354,70 @@ video {
   line-height: 1.6;
 }
 
+.tile-review-state {
+  margin-top: 11px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.tile-review-state.revision {
+  border-left: 4px solid var(--danger);
+  background: var(--rose-soft);
+  color: #79384a;
+}
+
+.tile-review-state.confirmed {
+  border-left: 4px solid #397c60;
+  background: var(--mint-soft);
+  color: #315f4c;
+}
+
+.moderation-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper-soft);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.moderation-state strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.moderation-state.revision {
+  border-color: #d7879a;
+  background: var(--rose-soft);
+}
+
+.moderation-state.confirmed {
+  border-color: #78b897;
+  background: var(--mint-soft);
+}
+
+.compact-actions {
+  margin-top: 18px;
+  padding-top: 14px;
+}
+
+.moderation-actions {
+  justify-content: center;
+}
+
+.post-owner-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 .modal-backdrop {
   position: fixed;
   z-index: 100;
@@ -1563,7 +1674,7 @@ video {
 
 @media (max-width: 780px) {
   .site-header { min-height: 68px; padding: 0 20px; }
-  .brand-copy small { display: none; }
+  .brand-copy strong { font-size: 0.95rem; }
   .top-nav {
     position: absolute;
     top: 68px;
@@ -1608,6 +1719,10 @@ video {
 }
 
 @media (max-width: 520px) {
+  .site-header { padding: 0 14px; }
+  .brand { gap: 9px; }
+  .brand-mark { width: 40px; height: 40px; box-shadow: 4px 4px 0 var(--rose); }
+  .brand-copy strong { font-size: 0.86rem; letter-spacing: -0.055em; }
   .mode-banner { align-items: flex-start; flex-direction: column; gap: 2px; }
   .hero-title { font-size: clamp(2.7rem, 15vw, 4.2rem); }
   .role-actions .button { width: 100%; }
@@ -1629,6 +1744,9 @@ video {
   .toolbar { width: 100%; }
   .dashboard-tools .button,
   .toolbar .button { flex: 1; }
+  .moderation-state { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .moderation-actions { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; }
+  .moderation-actions .button { min-width: 0; padding-right: 10px; padding-left: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -59,6 +59,7 @@
     container.querySelector('[data-refresh]').addEventListener('click', function () { renderClass(container, tab); });
     container.querySelector('[data-student-logout]').addEventListener('click', function () {
       window.LearnSession.clear('student');
+      if (window.LearnNavigation) window.LearnNavigation.clear('student');
       location.hash = '#/';
     });
     bindTabActions(container, tab, session);
@@ -84,7 +85,8 @@
     var head = '<div class="content-head"><div><h2>공지</h2><p>선생님이 전한 수업 소식을 확인하세요.</p></div></div>';
     if (!items.length) return head + UI.empty('새 공지가 없어요', '새로운 공지가 등록되면 이곳에 표시됩니다.');
     return head + '<div class="item-list">' + items.map(function (item) {
-      return '<article class="item-card ' + (item.pinned ? 'pinned' : '') + '">' +
+      return '<article class="item-card content-clickable ' + (item.pinned ? 'pinned' : '') + '" tabindex="0" ' +
+        'data-view-announcement="' + UI.attr(item.id) + '" aria-label="' + UI.attr(item.title + ' 상세 보기') + '">' +
         '<div class="item-top"><div><h3>' + UI.escape(item.title) + '</h3>' +
           '<div class="meta-line">' + (item.pinned ? '<span class="status-badge">중요 공지</span>' : '') +
             '<span>' + UI.escape(UI.date(item.updatedAt, true)) + '</span></div></div></div>' +
@@ -101,7 +103,8 @@
     return head + '<div class="item-list">' + studentData.assignments.map(function (assignment) {
       var submission = own[assignment.id];
       var open = assignment.status === 'open';
-      return '<article class="item-card">' +
+      return '<article class="item-card content-clickable" tabindex="0" data-view-assignment="' +
+        UI.attr(assignment.id) + '" aria-label="' + UI.attr(assignment.title + ' 상세 보기') + '">' +
         '<div class="item-top"><div><h3>' + UI.escape(assignment.title) + '</h3>' +
           '<div class="meta-line"><span class="status-badge ' + (open ? 'open' : '') + '">' + (open ? '제출 가능' : '마감') + '</span>' +
             (assignment.dueAt ? '<span>마감 ' + UI.escape(UI.date(assignment.dueAt, true)) + '</span>' : '') +
@@ -155,21 +158,95 @@
           ? '<div class="tile-content">' + UI.escape((post.text || '첨부파일을 올렸어요.').slice(0, 92)) +
             (post.text && post.text.length > 92 ? '…' : '') + '</div>' +
             (post.attachments && post.attachments.length ? '<div class="meta-line"><span>첨부 ' + post.attachments.length + '개</span></div>' : '') +
-            (post.status === 'revision' ? '<div class="revision-note" style="padding:7px;margin-top:10px">선생님의 수정 요청이 있어요.</div>' : '')
+            (mine && post.status === 'revision' ? '<div class="tile-review-state revision">수정이 필요해요</div>' : '') +
+            (mine && post.status === 'confirmed' ? '<div class="tile-review-state confirmed">선생님 확인 완료</div>' : '')
           : mine && board.status === 'open'
             ? '<div class="tile-empty"><span class="tile-plus">＋</span>내 카드에 작성하기</div>'
             : '<div class="tile-empty">아직 작성하지 않았어요.</div>') +
       '</article>';
     }).join('');
     return head + selectors +
-      '<article class="item-card" style="margin-bottom:20px"><div class="item-top"><div><h3>' + UI.escape(board.title) + '</h3>' +
+      '<article class="item-card content-clickable" tabindex="0" data-view-board="' + UI.attr(board.id) +
+        '" aria-label="' + UI.attr(board.title + ' 상세 보기') + '" style="margin-bottom:20px"><div class="item-top"><div><h3>' + UI.escape(board.title) + '</h3>' +
         '<div class="meta-line"><span class="status-badge ' + (board.status === 'open' ? 'open' : '') + '">' +
           (board.status === 'open' ? '작성 가능' : '읽기 전용') + '</span><span>게시 ' + posts.length + '/' + studentData.students.length + '명</span></div></div></div>' +
         (board.body ? '<p class="item-body">' + UI.escape(board.body) + '</p>' : '') + UI.attachments(board.attachments, 'student') + '</article>' +
       '<div class="board-grid">' + cards + '</div>';
   }
 
+  function bindDetailCard(card, open) {
+    function activate(event) {
+      if (event && event.target.closest('button, a, input, textarea, select, label')) return;
+      open();
+    }
+    card.addEventListener('click', activate);
+    card.addEventListener('keydown', function (event) {
+      if (event.target !== card || (event.key !== 'Enter' && event.key !== ' ')) return;
+      event.preventDefault();
+      activate();
+    });
+  }
+
+  function openStudentContentDetail(type, item, session, container, tab) {
+    var badge = '';
+    var meta = [];
+    var action = '';
+    var submission = null;
+    if (type === 'announcement') {
+      badge = item.pinned ? '<span class="status-badge">중요 공지</span>' : '';
+      meta.push(UI.date(item.updatedAt, true));
+    }
+    if (type === 'assignment') {
+      var open = item.status === 'open';
+      submission = studentData.submissions.find(function (entry) { return entry.assignmentId === item.id; });
+      badge = '<span class="status-badge ' + (open ? 'open' : '') + '">' + (open ? '제출 가능' : '마감') + '</span>';
+      if (item.dueAt) meta.push('마감 ' + UI.date(item.dueAt, true));
+      if (open) {
+        action = '<div class="modal-actions compact-actions"><button class="button small" type="button" data-detail-submit>' +
+          (submission ? '제출 수정' : '제출하기') + '</button></div>';
+      }
+    }
+    if (type === 'board') {
+      badge = '<span class="status-badge ' + (item.status === 'open' ? 'open' : '') + '">' +
+        (item.status === 'open' ? '작성 가능' : '읽기 전용') + '</span>';
+      meta.push('게시 ' + (item.postCount || 0) + '/' + studentData.students.length + '명');
+    }
+    var dialog = UI.modal({
+      title: item.title,
+      wide: true,
+      html:
+        '<div class="detail-meta">' + badge + meta.map(function (text) {
+          return '<span>' + UI.escape(text) + '</span>';
+        }).join('') + '</div>' +
+        '<div class="detail-body">' + (item.body ? UI.nl2br(item.body) : '<span class="muted-text">작성된 내용이 없어요.</span>') + '</div>' +
+        UI.attachments(item.attachments, 'student') + action
+    });
+    UI.bindFiles(dialog, 'student');
+    var submit = dialog.querySelector('[data-detail-submit]');
+    if (submit) submit.addEventListener('click', function () {
+      openSubmissionEditor(item, submission, container, tab);
+    });
+  }
+
   function bindTabActions(container, tab, session) {
+    container.querySelectorAll('[data-view-announcement]').forEach(function (card) {
+      bindDetailCard(card, function () {
+        var item = studentData.announcements.find(function (entry) { return entry.id === card.dataset.viewAnnouncement; });
+        if (item) openStudentContentDetail('announcement', item, session, container, tab);
+      });
+    });
+    container.querySelectorAll('[data-view-assignment]').forEach(function (card) {
+      bindDetailCard(card, function () {
+        var item = studentData.assignments.find(function (entry) { return entry.id === card.dataset.viewAssignment; });
+        if (item) openStudentContentDetail('assignment', item, session, container, tab);
+      });
+    });
+    container.querySelectorAll('[data-view-board]').forEach(function (card) {
+      bindDetailCard(card, function () {
+        var item = studentData.boards.find(function (entry) { return entry.id === card.dataset.viewBoard; });
+        if (item) openStudentContentDetail('board', item, session, container, tab);
+      });
+    });
     container.querySelectorAll('[data-submit-assignment]').forEach(function (button) {
       button.addEventListener('click', function () {
         var assignment = studentData.assignments.find(function (item) { return item.id === button.dataset.submitAssignment; });
@@ -192,10 +269,10 @@
         var boardId = selectedBoards[studentData.classInfo.id];
         var board = studentData.boards.find(function (item) { return item.id === boardId; });
         var post = studentData.boardPosts.find(function (item) { return item.id === tile.dataset.postId; });
-        if (mine && board.status === 'open') {
-          openBoardEditor(board, post, container, tab);
-        } else if (post) {
+        if (post) {
           openBoardPost(post, board, mine, container, tab);
+        } else if (mine && board.status === 'open') {
+          openBoardEditor(board, post, container, tab);
         }
       }
       tile.addEventListener('click', activate);
@@ -280,8 +357,7 @@
     var dialog = UI.modal({
       title: board.title + ' · 내 카드',
       html:
-        (post && post.status === 'revision' ? '<div class="revision-note"><strong>선생님의 수정 요청</strong><br>' +
-          UI.escape(post.revisionMessage) + '</div>' : '') +
+        (post && post.status === 'revision' ? '<div class="revision-note"><strong>선생님이 수정을 요청했어요.</strong><br>내용이나 첨부파일을 고친 뒤 다시 게시해 주세요.</div>' : '') +
         '<form class="form-stack" data-board-form style="margin-top:16px">' +
           uploadFields(post ? post.attachments : [], post ? post.text : '', '게시글 내용') +
           '<div class="modal-actions">' +
@@ -339,16 +415,26 @@
   }
 
   function openBoardPost(post, board, mine, container, tab) {
+    var privateState = '';
+    if (mine && post.status === 'revision') {
+      privateState = '<div class="moderation-state revision"><strong>수정이 필요해요</strong>' +
+        '<span>이 안내는 선생님과 나에게만 보여요.</span></div>';
+    }
+    if (mine && post.status === 'confirmed') {
+      privateState = '<div class="moderation-state confirmed"><strong>선생님 확인 완료</strong>' +
+        '<span>이 안내는 선생님과 나에게만 보여요.</span></div>';
+    }
     var dialog = UI.modal({
       title: post.studentNumber + '번 ' + post.studentName,
       wide: true,
       html:
+        privateState +
         '<div class="meta-line"><span>게시 ' + UI.escape(UI.date(post.createdAt, true)) + '</span>' +
           (post.updatedAt !== post.createdAt ? '<span>수정 ' + UI.escape(UI.date(post.updatedAt, true)) + '</span>' : '') +
         '</div>' +
-        '<p class="item-body" style="font-size:1.05rem;margin-top:22px">' + UI.escape(post.text || '') + '</p>' +
+        '<div class="detail-body">' + (post.text ? UI.nl2br(post.text) : '<span class="muted-text">작성된 글 없이 파일만 게시했어요.</span>') + '</div>' +
         UI.attachments(post.attachments, 'student') +
-        (mine && board.status === 'open' ? '<div class="modal-actions"><button class="button" type="button" data-edit-my-post>내 글 수정</button></div>' : '')
+        (mine && board.status === 'open' ? '<div class="post-owner-actions"><button class="button ghost small" type="button" data-edit-my-post>수정</button></div>' : '')
     });
     UI.bindFiles(dialog, 'student');
     var edit = dialog.querySelector('[data-edit-my-post]');

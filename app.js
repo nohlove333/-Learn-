@@ -5,8 +5,71 @@
   var nav = document.querySelector('.top-nav');
   var menuButton = document.querySelector('[data-action="toggle-mobile-menu"]');
   var modeBanner = document.getElementById('mode-banner');
+  var smartHome = document.querySelector('[data-smart-home]');
   var UI = window.LearnUI;
   var API = window.LearnAPI;
+  var activeRoleKey = 'learn_active_role_v1';
+  var teacherRouteKey = 'learn_last_teacher_route_v1';
+  var studentRouteKey = 'learn_last_student_route_v1';
+
+  function storageGet(key) {
+    try { return localStorage.getItem(key) || ''; } catch (error) { return ''; }
+  }
+
+  function storageSet(key, value) {
+    try {
+      if (value) localStorage.setItem(key, value);
+      else localStorage.removeItem(key);
+    } catch (error) {}
+  }
+
+  function hasSession(role) {
+    var session = window.LearnSession.get(role);
+    return Boolean(session && session.token);
+  }
+
+  function activateRole(role, route) {
+    storageSet(activeRoleKey, role);
+    if (role === 'teacher') storageSet(teacherRouteKey, route || '#/teacher');
+    if (role === 'student') storageSet(studentRouteKey, route || '#/student/class/announcements');
+  }
+
+  function clearRole(role) {
+    storageSet(role === 'teacher' ? teacherRouteKey : studentRouteKey, '');
+    if (storageGet(activeRoleKey) === role) storageSet(activeRoleKey, '');
+  }
+
+  function rememberProtectedRoute(parts) {
+    if (parts[0] === 'teacher' && parts[1] !== 'login' && parts[1] !== 'signup' && hasSession('teacher')) {
+      activateRole('teacher', location.hash || '#/teacher');
+    }
+    if (parts[0] === 'student' && parts[1] === 'class' && hasSession('student')) {
+      activateRole('student', location.hash || '#/student/class/announcements');
+    }
+  }
+
+  function studentResumeRoute() {
+    var route = storageGet(studentRouteKey);
+    return /^#\/student\/class\/(announcements|assignments|boards)$/.test(route)
+      ? route
+      : '#/student/class/announcements';
+  }
+
+  function resumeRoute() {
+    var activeRole = storageGet(activeRoleKey);
+    if (activeRole === 'student' && hasSession('student')) return studentResumeRoute();
+    if (activeRole === 'teacher' && hasSession('teacher')) return '#/teacher';
+    if (hasSession('student')) return studentResumeRoute();
+    if (hasSession('teacher')) return '#/teacher';
+    return '#/';
+  }
+
+  function smartHomeRoute() {
+    var parts = routeParts();
+    if (parts[0] === 'student' && hasSession('student')) return studentResumeRoute();
+    if (parts[0] === 'teacher' && hasSession('teacher')) return '#/teacher';
+    return resumeRoute();
+  }
 
   function routeParts() {
     var raw = location.hash.replace(/^#\/?/, '');
@@ -30,6 +93,7 @@
 
   function render() {
     var parts = routeParts();
+    rememberProtectedRoute(parts);
     updateHeader(parts);
     cleanupViews();
 
@@ -58,7 +122,7 @@
       '<section class="page landing-page">' +
         '<div class="hero-copy-wrap">' +
           '<p class="eyebrow">Classroom archive</p>' +
-          '<h1 class="hero-title">사랑스런<span class="learn">Learn</span><br>수업 시간</h1>' +
+          '<h1 class="hero-title">사랑스런<span class="learn">(Learn)</span><br>수업 시간</h1>' +
           '<p class="hero-copy">공지부터 과제 제출, 친구들과 함께 보는 보드까지. 선생님과 학생의 수업 기록을 한곳에 차곡차곡 모아요.</p>' +
           '<div class="role-actions">' +
             '<a class="button" href="#/student/login">학생으로 입장</a>' +
@@ -134,6 +198,7 @@
           setupKey: signup ? String(values.get('setupKey') || '') : ''
         });
         window.LearnSession.set('teacher', result);
+        activateRole('teacher', '#/teacher');
         UI.toast(signup ? '교사 계정을 만들었습니다.' : '로그인했습니다.');
         location.hash = '#/teacher';
       } catch (error) {
@@ -146,7 +211,7 @@
   function renderStudentLogin() {
     var existing = window.LearnSession.get('student');
     if (existing && existing.token) {
-      location.hash = '#/student/class/announcements';
+      location.hash = studentResumeRoute();
       return;
     }
     app.innerHTML =
@@ -179,6 +244,7 @@
           pin: String(values.get('pin') || '')
         });
         window.LearnSession.set('student', result);
+        activateRole('student', '#/student/class/announcements');
         UI.toast(result.user.name + ' 학생, 반가워요!');
         location.hash = '#/student/class/announcements';
       } catch (error) {
@@ -201,12 +267,26 @@
     });
   }
 
+  if (smartHome) {
+    smartHome.addEventListener('click', function (event) {
+      event.preventDefault();
+      var target = smartHomeRoute();
+      if (location.hash === target) render();
+      else location.hash = target;
+    });
+  }
+
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') UI.closeModal();
   });
 
   modeBanner.hidden = !window.LEARN_CONFIG.demoMode;
+  window.LearnNavigation = {
+    activate: activateRole,
+    clear: clearRole,
+    resume: resumeRoute
+  };
   window.addEventListener('hashchange', render);
-  if (!location.hash) location.hash = '#/';
-  render();
+  if (!location.hash) location.hash = resumeRoute();
+  else render();
 })();
